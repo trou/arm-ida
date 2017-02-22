@@ -29,6 +29,10 @@ C8_w = { 5: {1: "Invalidate Instruction TLB Single Entry Register"},
          7: {0: "Invalidate Unified TLB Register"}}
 p15_write = {1:C1_w, 2:C2_w, 3:C3_w, 7:C7_w, 8:C8_w}
 
+CR_flags = { 1: "MMU enable", 2: "Align Fault enable", 4: "Data cache enable", 0x80: "Big endian",
+            0x100: "System protection", 0x200: "ROM protection", 0x800: "Branch target buffer",
+            0x1000: "Instruction cache", 0x2000: "Excpt vect reloc"}
+
 def p15_read_to_human(num, reg, c1, c2, cst):
     if c1 < 0 or c1 > 15:
         return None
@@ -46,10 +50,11 @@ def p15_write_to_human(num, reg, c1, c2, cst):
         return None
 
 
-ea = MinEA()
+seg = idaapi.getseg(here())
+ea = seg.startEA
 while True:
     ea = find_text(ea, 0, 0, "m(rc|cr).*p15,.*,.*,.*,.*", SEARCH_DOWN|SEARCH_REGEX)
-    if ea == BADADDR:
+    if ea == BADADDR or ea > seg.endEA:
         break
     disass = GetDisasm(ea).lower()
     m = regex.match(disass)
@@ -67,6 +72,15 @@ while True:
         human = p15_write_to_human(num, int(reg), int(c1), int(c2), int(cst))
     else:
         human = p15_read_to_human(num, int(reg), int(c1), int(c2), int(cst))
+        # Special case to check for Control register writes
+        if GetMnem(ea+4) == 'ORR' and GetOpnd(ea+4, 0) == GetOpnd(ea+4, 1) == ('R'+reg):
+            flags =  GetOperandValue(ea+4, 2)
+            res = []
+            for flag in CR_flags.keys():
+                if flags&flag == flag:
+                    res.append(CR_flags[flag])
+            MakeComm(ea+4, " ".join(res))
+
     if human:
         MakeComm(ea, human)
     else:
